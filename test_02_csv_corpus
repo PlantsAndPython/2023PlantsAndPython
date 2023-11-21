@@ -1,0 +1,67 @@
+import requests
+from Bio import Entrez
+import time
+import csv
+
+# Configuración inicial
+base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+api_key = '555d4ea04b06001e8407ed6607b25df63508'  # Tu API key
+email = 'owo.xd.owo@gmail.com'  # Tu email
+Entrez.email = email  # Configurar el email para Bio.Entrez
+
+# Primera consulta para obtener el número total de IDs
+initial_search_url = f"{base_url}esearch.fcgi?db=pubmed&term='plant metabolites'&retmax=0&retmode=json&api_key={api_key}"
+initial_response = requests.get(initial_search_url).json()
+total_ids = int(initial_response["esearchresult"]["count"])  # Número total de IDs disponibles
+
+print(f"Total de IDs disponibles: {total_ids}")
+
+# Recuperación de todos los IDs
+all_ids = []
+retmax = 5000  # Número de IDs a recuperar en cada lote
+
+for retstart in range(0, total_ids, retmax):
+    search_url = f"{base_url}esearch.fcgi?db=pubmed&term='plant metabolites'&retmax={retmax}&retstart={retstart}&retmode=json&api_key={api_key}"
+    
+    search_response = requests.get(search_url).json()
+
+    if "ERROR" in search_response["esearchresult"]:
+        print(search_response["esearchresult"]["ERROR"])
+        break
+
+    current_ids = search_response["esearchresult"]["idlist"]
+    all_ids.extend(current_ids)
+
+    if len(current_ids) < retmax:
+        break
+
+print(len(all_ids), "IDs retrieved")
+
+# Función para descargar y guardar resúmenes en archivos CSV separados
+def fetch_abstracts(pubmed_ids, batch_number):
+    filename = f"pubmed_abstracts_batch_{batch_number}.csv"
+    with open(filename, "w", newline='', encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["PMID", "Title", "Year", "Abstract", "Affiliations"])
+
+        handle = Entrez.efetch(db="pubmed", id=','.join(map(str, pubmed_ids)), retmode="xml")
+        records = Entrez.read(handle)
+        
+        for record in records['PubmedArticle']:
+            article = record['MedlineCitation']['Article']
+            pmid = record['MedlineCitation']['PMID']
+
+            title = article.get('ArticleTitle', 'No title available')
+            year = article['Journal']['JournalIssue']['PubDate'].get('Year', 'N/A')
+            abstract_text = article['Abstract']['AbstractText'][0] if 'Abstract' in article else "No abstract available."
+            affiliations = '; '.join([info['Affiliation'] for author in article.get('AuthorList', []) for info in author.get('AffiliationInfo', [])])
+
+            writer.writerow([pmid, title, year, abstract_text, affiliations])
+
+        time.sleep(601)  # Pausa entre cada lote
+
+# Descarga de resúmenes en lotes y guardado en archivos CSV separados
+batch_size = 5000
+for i in range(0, len(all_ids), batch_size):
+    batch_number = i // batch_size
+    fetch_abstracts(all_ids[i:i + batch_size], batch_number)
